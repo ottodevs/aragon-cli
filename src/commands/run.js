@@ -135,6 +135,7 @@ exports.handler = function ({
           cwd,
           network,
           module,
+          contract: deploy.arappContract(),
           web3: ctx.web3,
           apm: apmOptions,
           automaticallyBump: true,
