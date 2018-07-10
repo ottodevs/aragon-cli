@@ -54,8 +54,7 @@ exports.task = async function ({ port = 8545, reset = false, showAccounts = 2 })
       const server = ganache.server({
         gasLimit: BLOCK_GAS_LIMIT,
         mnemonic: MNEMONIC,
-        db_path: snapshotPath,
-        network_id: 15, // aragen uses network_id 15 when creating snapshot https://github.com/aragon/aragen/blob/3df0d65a9de7bbdeeea763a444e0ab367db366a0/scripts/start-ganache#L6
+        db_path: snapshotPath
       })
       const listen = () => (
         new Promise((resolve, reject) => {
