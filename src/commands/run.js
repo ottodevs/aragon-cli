@@ -34,7 +34,7 @@ const url = require('url')
 const TX_MIN_GAS = 10e6
 const WRAPPER_PORT = 3000
 
-const WRAPPER_COMMIT = 'e60e74107c1d63a34010869159d945f919443851'
+const WRAPPER_COMMIT = 'bf6e1844bf985182ae9c184dbe18129bc06dfcbf'
 const WRAPPER_BRANCH = 'master'
 
 exports.command = 'run'
@@ -70,6 +70,12 @@ exports.builder = function (yargs) {
   }).option('build-script', {
     description: 'The npm script that will be run when building the app',
     default: 'build',
+  }).option('http', {
+    description: 'URL for where your app is served from e.g. localhost:1234',
+    default: null,
+  }).option('served-at', {
+    description: 'URL for where your app is served from e.g. localhost:1234',
+    default: null,
   })
 }
 
@@ -103,6 +109,8 @@ exports.handler = function ({
     kit,
     kitInit,
     buildScript,
+    http,
+    servedAt,
   }) {
   apmOptions.ensRegistryAddress = apmOptions['ens-registry']
   const showAccounts = accounts
@@ -145,7 +153,9 @@ exports.handler = function ({
           web3: ctx.web3,
           apm: apmOptions,
           automaticallyBump: true,
-          getRepo: true
+          getRepo: true,
+          http,
+          servedAt,
         }
         return publish.task(publishParams)
       },
