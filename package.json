@@ -1,11 +1,10 @@
 {
   "name": "@aragon/cli",
-  "version": "4.1.5",
+  "version": "5.0.0",
   "description": "Aragon command-line tools",
   "main": "dist/cli.js",
   "bin": {
     "aragon": "./dist/cli.js",
-    "apm": "./aliases/apm",
     "dao": "./aliases/dao"
   },
   "scripts": {
@@ -40,10 +39,11 @@
     "@aragon/apps-token-manager": "^1.0.0",
     "@aragon/apps-vault": "^2.0.1",
     "@aragon/apps-voting": "^1.0.0",
-    "@aragon/aragen": "1.3.0-beta.1",
-    "@aragon/os": "3.1.8",
+    "@aragon/aragen": "2.0.0-beta.1",
+    "@aragon/os": "4.0.0-beta.1",
     "@aragon/templates-beta": "^1.1.3",
-    "@aragon/wrapper": "^2.0.0-beta.41",
+    "@aragon/wrapper": "^2.0.0-beta.43",
+    "babel-polyfill": "^6.26.0",
     "bignumber.js": "^7.1.0",
     "chalk": "^2.1.0",
     "cli-table": "^0.3.1",
@@ -56,19 +56,19 @@
     "fs-extra": "^4.0.2",
     "ganache-core": "^2.1.6",
     "git-clone": "^0.1.0",
-    "hasbin": "^1.2.3",
-    "homedir": "^0.6.0",
+    "go-ipfs": "^0.4.17",
     "ignore": "^3.3.7",
     "ipfs-api": "^21.0.0",
     "js-sha3": "^0.7.0",
     "listr": "^0.13.0",
+    "listr-input": "0.1.3",
     "mkdirp": "^0.5.1",
     "ncp": "^2.0.0",
     "opn": "^5.3.0",
     "rimraf": "^2.6.2",
     "semver": "^5.4.1",
     "tmp-promise": "^1.0.4",
-    "truffle": "4.0.5",
+    "truffle": "4.1.14",
     "web3": "^1.0.0-beta.34",
     "yargs": "^10.1.0"
   },
@@ -90,5 +90,9 @@
     "require": [
       "@babel/register"
     ]
+  },
+  "aragon": {
+    "clientVersion": "fcebf55d1af6c574a92587e2a1d3ac8c00804d16",
+    "clientPort": "3000"
   }
 }

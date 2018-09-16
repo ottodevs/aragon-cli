@@ -10,14 +10,15 @@ const publish = require('./apm_cmds/publish')
 const devchain = require('./devchain')
 const deploy = require('./deploy')
 const newDAO = require('./dao_cmds/new')
-const install = require('./dao_cmds/install')
 const startIPFS = require('./ipfs')
+const encodeInitPayload = require('./dao_cmds/utils/encodeInitPayload')
 const { promisify } = require('util')
 const clone = promisify(require('git-clone'))
 const os = require('os')
 const fs = require('fs-extra')
 const opn = require('opn')
 const execa = require('execa')
+const pkg = require('../../package.json')
 
 const {
   findProjectRoot,
@@ -32,10 +33,9 @@ const { Writable } = require('stream')
 const url = require('url')
 
 const TX_MIN_GAS = 10e6
-const WRAPPER_PORT = 3000
 
-const WRAPPER_COMMIT = 'bf6e1844bf985182ae9c184dbe18129bc06dfcbf'
-const WRAPPER_BRANCH = 'master'
+const DEFAULT_CLIENT_VERSION = pkg.aragon.clientVersion;
+const DEFAULT_CLIENT_PORT = pkg.aragon.clientPort
 
 exports.command = 'run'
 
@@ -67,15 +67,34 @@ exports.builder = function (yargs) {
     description: 'Arguments to be passed to the kit constructor',
     array: true,
     default: [],
+  }).option('kit-deploy-event', {
+    description: 'Arguments to be passed to the kit constructor',
+    default: newDAO.BARE_KIT_DEPLOY_EVENT,
   }).option('build-script', {
     description: 'The npm script that will be run when building the app',
     default: 'build',
   }).option('http', {
     description: 'URL for where your app is served from e.g. localhost:1234',
     default: null,
-  }).option('served-at', {
-    description: 'URL for where your app is served from e.g. localhost:1234',
+  }).option('http-served-from', {
+    description: 'Directory where your files is being served from e.g. ./dist',
     default: null,
+  }).option('app-init', {
+    description: 'Name of the function that will be called to initialize an app',
+    default: 'initialize'
+  }).option('app-init-args', {
+    description: 'Arguments for calling the app init function',
+    array: true,
+    default: [],
+  }).option('client-version', {
+    description: 'Version of Aragon client used to run your sandboxed app',
+    default: DEFAULT_CLIENT_VERSION
+  }).option('client-port', {
+    description: 'Port being used by Aragon client',
+    default: DEFAULT_CLIENT_PORT
+  }).option('client-path', {
+    description: 'A path pointing to an existing Aragon client installation',
+    default: null
   })
 }
 
@@ -108,12 +127,23 @@ exports.handler = function ({
     reset,
     kit,
     kitInit,
+    kitDeployEvent,
     buildScript,
     http,
-    servedAt,
+    httpServedFrom,
+    appInit,
+    appInitArgs,
+    clientVersion,
+    clientPort,
+    clientPath
   }) {
+
   apmOptions.ensRegistryAddress = apmOptions['ens-registry']
+
+  clientPort = clientPort || DEFAULT_CLIENT_PORT
+
   const showAccounts = accounts
+
   const tasks = new TaskList([
     {
       title: 'Start a local Ethereum network',
@@ -134,6 +164,7 @@ exports.handler = function ({
     {
       title: 'Check IPFS',
       task: () => startIPFS.task({ apmOptions }),
+      enabled: () => !http || kit
     },
     {
       title: 'Publish app to APM',
@@ -155,7 +186,7 @@ exports.handler = function ({
           automaticallyBump: true,
           getRepo: true,
           http,
-          servedAt,
+          httpServedFrom,
         }
         return publish.task(publishParams)
       },
@@ -181,8 +212,21 @@ exports.handler = function ({
       title: 'Create DAO',
       task: (ctx) => {
         const roles = ctx.repo.roles.map(role => role.bytes)
-        // If no kit was deployed, use default params
-        const fnArgs = ctx.contractInstance ? [] : [ctx.repo.appId, roles, ctx.accounts[0], '0x']
+        let fnArgs
+
+        if (ctx.contractInstance) {
+          // If no kit was deployed, use default params
+          fnArgs = []
+        } else {
+          // TODO: Report warning when app wasn't initialized
+          const initPayload = encodeInitPayload(ctx.web3, ctx.repo.abi, appInit, appInitArgs)
+
+          if (initPayload == '0x') {
+            ctx.notInitialized = true
+          }
+
+          fnArgs = [ctx.repo.appId, roles, ctx.accounts[0], initPayload]
+        }
 
         const newDAOParams = {
           kit, 
@@ -190,7 +234,7 @@ exports.handler = function ({
           kitInstance: ctx.contractInstance,
           fn: 'newInstance',
           fnArgs,
-          deployEvent: newDAO.BARE_KIT_DEPLOY_EVENT,
+          deployEvent: kitDeployEvent,
           web3: ctx.web3, 
           reporter, 
           apmOptions
@@ -204,48 +248,49 @@ exports.handler = function ({
       task: (ctx, task) => new TaskList([
         {
           title: 'Download wrapper',
+          skip: () => !!clientPath,
           task: (ctx, task) => {
-            const WRAPPER_PATH = `${os.homedir()}/.aragon/wrapper-${WRAPPER_COMMIT}`
-            ctx.wrapperPath = WRAPPER_PATH
+            clientVersion = clientVersion || DEFAULT_CLIENT_VERSION
+            const CLIENT_PATH = `${os.homedir()}/.aragon/wrapper-${clientVersion}`
+            ctx.wrapperPath = CLIENT_PATH
 
             // Make sure we haven't already downloaded the wrapper
-            if (fs.existsSync(path.resolve(WRAPPER_PATH))) {
+            if (fs.existsSync(path.resolve(CLIENT_PATH))) {
               task.skip('Wrapper already downloaded')
               ctx.wrapperAvailable = true
               return
             }
 
             // Ensure folder exists
-            fs.ensureDirSync(WRAPPER_PATH)
+            fs.ensureDirSync(CLIENT_PATH)
 
             // Clone wrapper
-            return clone(
-              'https://github.com/aragon/aragon',
-              WRAPPER_PATH,
-              { checkout: WRAPPER_BRANCH }
-            )
-          },
+            return clone('https://github.com/aragon/aragon', CLIENT_PATH, {
+              checkout: clientVersion
+            })
+          }
         },
         {
           title: 'Install wrapper dependencies',
           task: async (ctx, task) => (await installDeps(ctx.wrapperPath, task)),
-          enabled: (ctx) => !ctx.wrapperAvailable
+          enabled: (ctx) => !ctx.wrapperAvailable && !clientPath
         },
         {
           title: 'Start Aragon client',
           task: async (ctx, task) => {
-            if (await isPortTaken(WRAPPER_PORT)) {
+            if (await isPortTaken(clientPort)) {
               ctx.portOpen = true
               return
             }
             const bin = getNodePackageManager()
             const startArguments = {
-              cwd: ctx.wrapperPath,
+              cwd: clientPath || ctx.wrapperPath,
               env: {
                 REACT_APP_ENS_REGISTRY_ADDRESS: ctx.ens,
                 BROWSER: 'none',
               }
             }
+
             execa(bin, ['run', 'start:local'], startArguments).catch((err) => { throw new Error(err) })
           }
         },
@@ -255,9 +300,9 @@ exports.handler = function ({
             // Check until the wrapper is served
             const checkWrapperReady = () => {
               setTimeout(async () => {
-                const portTaken = await isPortTaken(WRAPPER_PORT)
+                const portTaken = await isPortTaken(clientPort)
                 if (portTaken) {
-                  opn(`http://localhost:${WRAPPER_PORT}/#/${ctx.daoAddress}`)
+                  opn(`http://localhost:${clientPort}/#/${ctx.daoAddress}`)
                 } else {
                   checkWrapperReady()
                 }
@@ -279,7 +324,11 @@ exports.handler = function ({
 
   return tasks.run({ ens: apmOptions['ens-registry'] }).then(async (ctx) => {
     if (ctx.portOpen) {
-      reporter.warning(`Server already listening at port ${WRAPPER_PORT}, skipped starting Aragon`)
+      reporter.warning(`Server already listening at port ${clientPort}, skipped starting Aragon`)
+    }
+
+    if (ctx.notInitialized) {
+      reporter.warning('App could not be initialized, check the --app-init flag. Functions protected behind the ACL will not work until the app is initialized')
     }
 
     reporter.info(`You are now ready to open your app in Aragon.`)
